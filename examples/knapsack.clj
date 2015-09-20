@@ -1,11 +1,11 @@
 (ns examples.knapsack
-  (:require [clojure.set :as set]
-            [optimize.core :as o]))
+  (:use [optimize.core])
+  (:require [clojure.set :as set]))
 
 (defrecord KnapsackItem [weight value])
 
 (deftype KnapsackProblem [max-weight items]
-  o/LocalSearch
+  LocalSearch
   (init
    [this]
    (let [[name {:keys [weight]}] (rand-nth (seq items))]
@@ -40,11 +40,11 @@
           (filter #(>= max-weight (weight %)))))))
 
 (extend-type KnapsackProblem
-  o/TabuSearch
+  TabuSearch
   (legal?
    [this t s]
    (let [t-active (-> (map second t) set)
-         features (-> (o/extract-features this s) set)]
+         features (-> (extract-features this s) set)]
      (-> (set/intersection t-active features) empty?)))
   (extract-features
    [this s]
@@ -55,7 +55,7 @@
                                 :item3 (->KnapsackItem 3 9)
                                 :item4 (->KnapsackItem 5 11)
                                 :item5 (->KnapsackItem 6 13)})]
-  (doseq [f [o/hill-climbing o/tabu-search]]
+  (doseq [f [hill-climbing tabu-search simulated-annealing]]
     (let [{:keys [s* score*]} (f kp)]
       (prn (format "Best solution found (%s): %s (score: %s)"
                    f (pr-str s*) score*)))))

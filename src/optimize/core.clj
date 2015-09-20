@@ -1,5 +1,7 @@
 (ns optimize.core)
 
+(def default-opts {:max-iterations 1000})
+
 ;; -----------------------------------------------------------------------------
 ;; Protocols
 
@@ -36,8 +38,7 @@
 ;; -----------------------------------------------------------------------------
 ;; Hill climbing
 
-(def hill-climbing-opts {:max-iterations 1000
-                         :steepest-ascent? true})
+(def hill-climbing-opts (merge default-opts {:steepest-ascent? true}))
 
 (defn hill-climbing
   "Hill climbing method"
@@ -63,7 +64,7 @@
 ;; -----------------------------------------------------------------------------
 ;; Tabu search
 
-(def tabu-search-opts {:max-iterations 1000 :tenure 1})
+(def tabu-search-opts (merge default-opts {:tenure 1}))
 
 (defn expire-features
   "Expires the elements that are no longer tabu-active."
@@ -109,4 +110,27 @@
                     :t (-> (extract-features pb s') (make-tabu t' i))}
                    (assoc best :t (vec t')))))
              {:s* s0 :score* (objective pb s0) :t []}
+             (range max-iterations)))))
+
+;; -----------------------------------------------------------------------------
+;; Simulated annealing
+
+(def simulated-annealing-opts default-opts)
+
+(defn simulated-annealing
+  "Simulated annealing"
+  ([pb] (simulated-annealing pb {}))
+  ([pb opts]
+   {:pre [(satisfies? LocalSearch pb)]}
+   (let [{:keys [max-iterations]} (merge simulated-annealing-opts opts)
+         s0 (init pb)]
+     (reduce (fn [{:keys [s* score*] :as best} i]
+               (let [t (- max-iterations i)
+                     s' (-> (neighborhood pb s*) rand-nth)
+                     score' (objective pb s')
+                     p #(if (< %2 %1) 1 (-> %2 (- %1) - (/ %3) Math/exp))]
+                 (if (>= (p score' score* t) (rand))
+                   {:s* s' :score* score'}
+                   best)))
+             {:s* s0 :score* (objective pb s0)}
              (range max-iterations)))))
