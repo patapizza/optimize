@@ -1,8 +1,7 @@
 (ns examples.vrp
   (:use [optimize.core])
   (:require [clojure.java.io :as io]
-            [clojure.string :as string]
-            [clojure.math.combinatorics :as combo]))
+            [clojure.string :as string]))
 
 (defrecord Customer [i x y q])
 
@@ -19,38 +18,66 @@
                                       route)))
                                 (list depot))
                         (cons depot)
-                        (map :i))
+                        (mapv :i))
          mk-routes (fn [customers routes]
                      (let [route (mk-route customers)
-                           customers' (drop (- (count route) 2) customers)
+                           customers' (filter #(= -1 (.indexOf route (:i %))) customers)
                            routes' (conj routes route)]
                        (if (empty? customers')
                          routes'
                          (recur customers' routes'))))
          routes (mk-routes customers [])]
-     (concat routes (repeat (- m (count routes)) [0 0]))))
+     (->> (repeat (->> routes count (- m)) [0 0])
+          (concat routes)
+          vec)))
   (objective
    [this s]
-   (let [route-n (map count s)
-         route-cost (fn [route]
+   (let [route-cost (fn [route]
                       (reduce (fn [cost k]
                                 (if (= 0 k)
                                   cost
                                   (+ cost (get-in c [(nth route (dec k))
                                                      (nth route k)]))))
                               0
-                              (range (count route))))]
+                              (-> route count range)))]
      (->> s (map route-cost) (apply +) -)))
   (neighborhood
    [this s]
-   ;; move one customer within a route or to another route
-   ;; FIXME: This is prohibitive. Build a smaller, smarter neighborhood.
-   (let [route-perm (fn [route]
-                      (->> (combo/permutations route)
-                           (filter #(and (not= 0 (first %))
-                                         (not= 0 (last %))))))]
-     (->> (map route-perm s)
-          (apply combo/cartesian-product)))))
+   ;; swap two customers within a route or between routes
+   (let [n (count s)
+         stops #(-> % count (- 2))
+         rand-int+ #(-> % rand-int inc)
+         in-swap (fn [route]
+                   (let [n (stops route)
+                         [i j] (repeatedly 2 #(rand-int+ n))]
+                     (assoc route i (nth route j) j (nth route i))))
+         in-swaps (reduce (fn [routes i]
+                            (->> (in-swap (nth s i))
+                                 (assoc s i)
+                                 (conj routes)))
+                          []
+                          (range n))
+         out-swap (fn [x y]
+                    (let [[i j] (map #(-> % stops rand-int+) [x y])]
+                      [(assoc x i (nth y j)) (assoc y j (nth x i))]))
+         out-swaps (reduce (fn [routes i]
+                             (reduce (fn [routes' j]
+                                       (->> s
+                                            (keep-indexed #(when (and (not= i %1) (not= j %1)) %2))
+                                            (concat (out-swap (nth s i) (nth s j)))
+                                            vec
+                                            (conj routes')))
+                                     routes
+                                     (range (inc i) n)))
+                           []
+                           (range n))
+         valid? (fn [route]
+                  (->> (map #(-> vertices (nth %) :q) route)
+                       (apply +)
+                       (>= max-load)))]
+     (->> (filter #(every? valid? %) out-swaps)
+          (concat in-swaps)
+          vec))))
 
 (defn extract-data
   [line]
@@ -88,7 +115,8 @@
                vertices)]
     (->VRP m n max-load vertices c)))
 
-(let [vrp-instance (mk-vrp "vrp/p01")
-      {:keys [s* score*]} (hill-climbing vrp-instance)]
-  (prn (format "Best solution found: %s (score: %s)"
-               (pr-str s*) score*)))
+(let [vrp-instance (mk-vrp "vrp/p01")]
+  (doseq [f [hill-climbing simulated-annealing]]
+    (let [{:keys [s* score*]} (f vrp-instance)]
+      (prn (format "Best solution found (%s): %s (score: %s)"
+                   f (pr-str s*) (- score*))))))
